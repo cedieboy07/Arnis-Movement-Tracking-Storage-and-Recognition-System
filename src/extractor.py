@@ -89,9 +89,14 @@ class PoseExtractor:
             [np.linalg.norm(raw[15] - raw[16]) / torso_scale], dtype=np.float32
         )
 
+        # 5. Torso rotation / bladedness ratio (1 feature: squared vs. sideways stance)
+        shoulder_width_ratio = np.array(
+            [abs(raw[11][0] - raw[12][0]) / torso_scale], dtype=np.float32
+        )
+
         # Concatenate into a single 114-D feature vector
         feature_vector = np.concatenate(
-            [norm_coords, angles, left_blade_dir, right_blade_dir, wrist_dist]
+            [norm_coords, angles, left_blade_dir, right_blade_dir, wrist_dist, shoulder_width_ratio]
         )
 
         return raw, feature_vector
