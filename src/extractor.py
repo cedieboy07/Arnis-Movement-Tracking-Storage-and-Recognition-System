@@ -4,9 +4,13 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+# Lower-body landmark indices: hips (23, 24), knees (25, 26), ankles (27, 28), feet (29-32)
+LOWER_BODY_INDICES = list(range(23, 33))
+KNEE_ANKLE_INDICES = [25, 26, 27, 28]
+
 
 class PoseExtractor:
-    def __init__(self, model_path="models/pose_landmarker_full.task", smooth_alpha=0.65):
+    def __init__(self, model_path="models/pose_landmarker_full.task", smooth_alpha=0.65, vis_threshold=0.5):
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.PoseLandmarkerOptions(
             base_options=base_options,
@@ -16,7 +20,8 @@ class PoseExtractor:
             min_tracking_confidence=0.5,
         )
         self.landmarker = vision.PoseLandmarker.create_from_options(options)
-        self.smooth_alpha = smooth_alpha  # Higher = more responsive, lower = smoother
+        self.smooth_alpha = smooth_alpha
+        self.vis_threshold = vis_threshold
         self._prev_raw = None
 
     @staticmethod
@@ -30,7 +35,7 @@ class PoseExtractor:
     @staticmethod
     def _weapon_axis(wrist, index_knuckle, pinky_knuckle):
         """
-        Estimates the unit direction vector of a held stick/sword from the grip landmarks.
+        Estimates the unit direction vector of a held stick/sword from grip landmarks.
         MediaPipe landmarks: Left (15, 19, 17) | Right (16, 20, 18)
         """
         grip_center = (index_knuckle + pinky_knuckle) / 2.0
@@ -38,7 +43,6 @@ class PoseExtractor:
         return axis / (np.linalg.norm(axis) + 1e-6)
 
     def _smooth_landmarks(self, raw):
-        """Applies exponential moving average smoothing to reduce webcam landmark jitter."""
         if self._prev_raw is None:
             self._prev_raw = raw.copy()
         else:
@@ -47,8 +51,8 @@ class PoseExtractor:
 
     def process_frame(self, frame_bgr, timestamp_ms):
         """
-        Primary Data Contract:
-        Returns (smoothed_landmarks_33x3, feature_vector_114) or (None, None).
+        Data Contract:
+          Returns (smoothed_landmarks_33x3, feature_vector_115) or (None, None).
         """
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
@@ -60,13 +64,22 @@ class PoseExtractor:
 
         landmarks = result.pose_landmarks[0]
         raw = np.array([[lm.x, lm.y, lm.z] for lm in landmarks], dtype=np.float32)
+        visibility = np.array([lm.visibility for lm in landmarks], dtype=np.float32)
         raw = self._smooth_landmarks(raw)
+
+        # Check if knees & ankles are reliably visible in the webcam frame
+        legs_visible = np.mean(visibility[KNEE_ANKLE_INDICES]) >= self.vis_threshold
 
         # 1. Hip-centered & torso-scaled body coordinates (99 features)
         hip_center = (raw[23] + raw[24]) / 2.0
         shoulder_center = (raw[11] + raw[12]) / 2.0
         torso_scale = np.linalg.norm(shoulder_center - hip_center) + 1e-6
-        norm_coords = ((raw - hip_center) / torso_scale).flatten()
+        norm_3d = (raw - hip_center) / torso_scale
+
+        if not legs_visible:
+            norm_3d[LOWER_BODY_INDICES] = 0.0
+
+        norm_coords = norm_3d.flatten()
 
         # 2. Key martial arts joint angles normalized to [0, 1] (8 features)
         angles = np.array([
@@ -74,27 +87,27 @@ class PoseExtractor:
             self._calc_angle(raw[12], raw[14], raw[16]),  # Right elbow
             self._calc_angle(raw[23], raw[11], raw[13]),  # Left shoulder
             self._calc_angle(raw[24], raw[12], raw[14]),  # Right shoulder
-            self._calc_angle(raw[11], raw[23], raw[25]),  # Left hip
-            self._calc_angle(raw[12], raw[24], raw[26]),  # Right hip
-            self._calc_angle(raw[23], raw[25], raw[27]),  # Left knee (stance depth)
-            self._calc_angle(raw[24], raw[26], raw[28]),  # Right knee (stance depth)
+            self._calc_angle(raw[11], raw[23], raw[25]) if legs_visible else 0.0,  # Left hip
+            self._calc_angle(raw[12], raw[24], raw[26]) if legs_visible else 0.0,  # Right hip
+            self._calc_angle(raw[23], raw[25], raw[27]) if legs_visible else 0.0,  # Left knee
+            self._calc_angle(raw[24], raw[26], raw[28]) if legs_visible else 0.0,  # Right knee
         ], dtype=np.float32) / np.pi
 
         # 3. Virtual weapon direction unit vectors for both hands (6 features)
         left_blade_dir = self._weapon_axis(raw[15], raw[19], raw[17])
         right_blade_dir = self._weapon_axis(raw[16], raw[20], raw[18])
 
-        # 4. Normalized wrist-to-wrist distance (1 feature: detects 1-handed vs 2-handed grip)
+        # 4. Normalized wrist-to-wrist distance (1 feature)
         wrist_dist = np.array(
             [np.linalg.norm(raw[15] - raw[16]) / torso_scale], dtype=np.float32
         )
 
-        # 5. Torso rotation / bladedness ratio (1 feature: squared vs. sideways stance)
+        # 5. Torso rotation / bladedness ratio (1 feature)
         shoulder_width_ratio = np.array(
             [abs(raw[11][0] - raw[12][0]) / torso_scale], dtype=np.float32
         )
 
-        # Concatenate into a single 114-D feature vector
+        # Concatenate into the 115-D feature vector
         feature_vector = np.concatenate(
             [norm_coords, angles, left_blade_dir, right_blade_dir, wrist_dist, shoulder_width_ratio]
         )
@@ -129,7 +142,6 @@ class PoseExtractor:
         def to_px(pt):
             return (int(pt[0] * w), int(pt[1] * h))
 
-        # Two-handed grip (Kendo / Longsword): wrists within 35% of torso length
         if wrist_gap < 0.35:
             mid_wrist = (raw[15] + raw[16]) / 2.0
             mid_dir = (
@@ -140,7 +152,6 @@ class PoseExtractor:
             tip = mid_wrist + mid_dir * blade_length_ratio
             return {"two_handed": (to_px(mid_wrist), to_px(tip))}
 
-        # Dual / Single-handed grip (Arnis Double Baston / Rapier)
         l_dir = self._weapon_axis(raw[15], raw[19], raw[17])
         r_dir = self._weapon_axis(raw[16], raw[20], raw[18])
         return {
