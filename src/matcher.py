@@ -9,25 +9,48 @@ class PoseMatcher:
 
     def match(self, live_vec, saved_moves):
         """
-        Compares live normalized vector (99,) against saved moves dict.
-        Returns (best_name, best_score_percent) or (None, 0.0).
+        Compare a live 115-value feature vector against saved stance vectors.
+        Returns the best matching name and a score from 0.0 to 100.0.
         """
         if live_vec is None or not saved_moves:
             return None, 0.0
 
-        live_tensor = torch.tensor(live_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
+        live_tensor = torch.as_tensor(
+            live_vec, dtype=torch.float32, device=self.device
+        ).reshape(-1)
+        if live_tensor.numel() != 115:
+            raise ValueError(
+                f"Live feature vector must contain 115 values; "
+                f"got {live_tensor.numel()}."
+            )
 
-        best_name = None
-        best_score = -1.0
+        names = []
+        vectors = []
+        for name, data in saved_moves.items():
+            vector = torch.as_tensor(
+                data["vector"], dtype=torch.float32, device=self.device
+            ).reshape(-1)
+            if vector.numel() != 115:
+                raise ValueError(
+                    f"Saved move {name!r} must contain 115 feature values; "
+                    f"got {vector.numel()}."
+                )
+            names.append(name)
+            vectors.append(vector)
 
+        target_tensor = torch.stack(vectors)
         with torch.no_grad():
-            for name, data in saved_moves.items():
-                target_tensor = data["vector"].to(self.device).unsqueeze(0)
-                score = F.cosine_similarity(live_tensor, target_tensor).item()
-                if score > best_score:
-                    best_score = score
-                    best_name = name
+            scores = F.cosine_similarity(
+                live_tensor.unsqueeze(0), target_tensor, dim=1
+            )
+
+        if not torch.isfinite(scores).all():
+            raise ValueError("Feature vectors must contain only finite values.")
+
+        best_index = scores.argmax().item()
+        best_score = scores[best_index].item()
+        score_percent = round(max(0.0, min(best_score, 1.0)) * 100, 1)
 
         if best_score >= self.threshold:
-            return best_name, round(best_score * 100, 1)
-        return None, round(best_score * 100, 1)
+            return names[best_index], score_percent
+        return None, score_percent
