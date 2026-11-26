@@ -1,60 +1,38 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
 
 
 class PoseMatcher:
-    def __init__(self, threshold=0.88):
+    def __init__(self, threshold=0.80):
+        """
+        Compares a live 115-D normalized feature vector against saved stances
+        using PyTorch L2-normalized cosine similarity.
+        """
         self.threshold = threshold
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def match(self, live_vec, saved_moves):
+    def match(self, live_vector, saved_moves):
         """
-        Compare a live 115-value feature vector against saved stance vectors.
-        Returns the best matching name and a score from 0.0 to 100.0.
+        Data Contract:
+          Input: live_vector (np.ndarray shape (115,)), saved_moves (dict from MoveLibrary)
+          Output: (best_move_name or None, score_percent float 0.0-100.0)
         """
-        if live_vec is None or not saved_moves:
+        if live_vector is None or not saved_moves:
             return None, 0.0
 
-        live_tensor = torch.as_tensor(
-            live_vec, dtype=torch.float32, device=self.device
-        ).reshape(-1)
-        if live_tensor.numel() != 115:
-            raise ValueError(
-                f"Live feature vector must contain 115 values; "
-                f"got {live_tensor.numel()}."
-            )
-
-        names = []
-        vectors = []
-        for name, data in saved_moves.items():
-            raw_vec = torch.as_tensor(data["vector"], dtype=torch.float32, device=self.device)
-            if raw_vec.ndim == 2 and raw_vec.shape[1] == 115:
-                continue  # Skip dynamic sequences during static stance matching
-            vector = raw_vec.reshape(-1)
-            if vector.numel() != 115:
-                raise ValueError(
-                    f"Saved move {name!r} must contain 115 feature values; "
-                    f"got {vector.numel()}."
-                )
-            names.append(name)
-            vectors.append(vector)
-
-        if not vectors:
+        live_tensor = torch.as_tensor(live_vector, dtype=torch.float32).flatten()
+        if live_tensor.shape[0] != 115 or torch.norm(live_tensor) < 1e-6:
             return None, 0.0
 
-        target_tensor = torch.stack(vectors)
-        with torch.no_grad():
-            scores = F.cosine_similarity(
-                live_tensor.unsqueeze(0), target_tensor, dim=1
-            )
+        names = list(saved_moves.keys())
+        bank_tensors = torch.stack([saved_moves[name]["vector"].float() for name in names])
 
-        if not torch.isfinite(scores).all():
-            raise ValueError("Feature vectors must contain only finite values.")
+        similarities = F.cosine_similarity(live_tensor.unsqueeze(0), bank_tensors, dim=1)
+        best_idx = int(torch.argmax(similarities).item())
+        best_sim = float(similarities[best_idx].item())
 
-        best_index = scores.argmax().item()
-        best_score = scores[best_index].item()
-        score_percent = round(max(0.0, min(best_score, 1.0)) * 100, 1)
+        score_percent = max(0.0, min(100.0, best_sim * 100.0))
+        if best_sim >= self.threshold:
+            return names[best_idx], score_percent
 
-        if best_score >= self.threshold:
-            return names[best_index], score_percent
         return None, score_percent

@@ -305,12 +305,8 @@ class MartialArtsHUD:
         pill_x1, pill_y1 = 18, 14
         pill_x2, pill_y2 = w - 18, 60
         if mode == "TEACH":
-            if live_raw is None:
-                status_text = "Teaching Mode - Step into camera view"
-                accent = PALETTE["peach"]
-            else:
-                status_text = "Teaching Mode - Press R to record stance"
-                accent = PALETTE["gold"]
+            status_text = "Teaching Mode  |  Record or Import Stances"
+            accent = PALETTE["gold"]
         elif detected_name:
             status_text = f"Matched: {detected_name}"
             accent = PALETTE["mint"]
@@ -337,8 +333,8 @@ class MartialArtsHUD:
             cv2.FONT_HERSHEY_SIMPLEX, 0.65, PALETTE["cream"], 2, cv2.LINE_AA
         )
 
-        # Right side of top pill: Show Match Meter only in Training Mode
-        if mode == "TRAIN":
+        # Right side of top pill: Score percentage + rounded progress bar (Training mode)
+        if mode != "TEACH":
             pct_text = f"{score:.0f}%"
             cv2.putText(
                 frame, pct_text, (w - 235, 42),
@@ -356,10 +352,10 @@ class MartialArtsHUD:
             frame, live_raw, ghost_raw, extractor, has_ghost_badge=bool(ghost_label)
         )
 
-        # 3. Center Countdown Alert Pill
+        # 3. Center Countdown / Status Alert Pill
         if status_msg:
             pretty_msg = status_msg.replace("HOLD STANCE:", "Hold your stance:")
-            (tw, th), _ = cv2.getTextSize(pretty_msg, cv2.FONT_HERSHEY_SIMPLEX, 0.95, 2)
+            (tw, th), _ = cv2.getTextSize(pretty_msg, cv2.FONT_HERSHEY_SIMPLEX, 0.90, 2)
             cx, cy = w // 2, h // 2
             self._draw_card(
                 frame,
@@ -371,55 +367,58 @@ class MartialArtsHUD:
             )
             cv2.putText(
                 frame, pretty_msg, (cx - tw // 2, cy),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.95, PALETTE["peach"], 2, cv2.LINE_AA
+                cv2.FONT_HERSHEY_SIMPLEX, 0.90, PALETTE["peach"], 2, cv2.LINE_AA
             )
 
-        # 4. Right Card: Recent Moves History (Training Mode only)
-        if mode == "TRAIN":
-            hist_x1, hist_y1 = w - 275, 72
-            hist_x2, hist_y2 = w - 18, 305
-            self._draw_card(
-                frame,
-                (hist_x1, hist_y1),
-                (hist_x2, hist_y2),
-                border_color=PALETTE["card_border"],
-                alpha=0.72,
-                radius=14,
-            )
+        # 4. Right Card: Recent Moves History
+        hist_x1, hist_y1 = w - 275, 72
+        hist_x2, hist_y2 = w - 18, 305
+        self._draw_card(
+            frame,
+            (hist_x1, hist_y1),
+            (hist_x2, hist_y2),
+            border_color=PALETTE["card_border"],
+            alpha=0.72,
+            radius=14,
+        )
+        cv2.putText(
+            frame, "Recent Moves", (hist_x1 + 16, hist_y1 + 26),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.54, PALETTE["sky"], 2, cv2.LINE_AA
+        )
+
+        recent_history = list(reversed(history))[:7]
+        if not recent_history:
             cv2.putText(
-                frame, "Recent Moves", (hist_x1 + 16, hist_y1 + 26),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.54, PALETTE["sky"], 2, cv2.LINE_AA
+                frame, "No stances matched yet", (hist_x1 + 16, hist_y1 + 56),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.46, PALETTE["muted"], 1, cv2.LINE_AA
             )
+        else:
+            for idx, entry in enumerate(recent_history):
+                if isinstance(entry, dict):
+                    m_name, m_score = entry["name"], entry["score"]
+                else:
+                    m_name, m_score = entry
+                y_pos = hist_y1 + 56 + idx * 28
+                is_latest = idx == 0
+                dot_color = PALETTE["mint"] if is_latest else PALETTE["muted"]
+                text_color = PALETTE["cream"] if is_latest else PALETTE["muted"]
+                display_name = m_name if len(m_name) <= 16 else m_name[:14] + ".."
 
-            recent_history = list(reversed(history))[:7]
-            if not recent_history:
+                cv2.circle(frame, (hist_x1 + 20, y_pos - 4), 3, dot_color, -1, cv2.LINE_AA)
                 cv2.putText(
-                    frame, "No stances matched yet", (hist_x1 + 16, hist_y1 + 56),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.46, PALETTE["muted"], 1, cv2.LINE_AA
+                    frame, display_name, (hist_x1 + 30, y_pos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.47, text_color, 1, cv2.LINE_AA
                 )
-            else:
-                for idx, (m_name, m_score) in enumerate(recent_history):
-                    y_pos = hist_y1 + 56 + idx * 28
-                    is_latest = idx == 0
-                    dot_color = PALETTE["mint"] if is_latest else PALETTE["muted"]
-                    text_color = PALETTE["cream"] if is_latest else PALETTE["muted"]
-                    display_name = m_name if len(m_name) <= 16 else m_name[:14] + ".."
-
-                    cv2.circle(frame, (hist_x1 + 20, y_pos - 4), 3, dot_color, -1, cv2.LINE_AA)
-                    cv2.putText(
-                        frame, display_name, (hist_x1 + 30, y_pos),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.47, text_color, 1, cv2.LINE_AA
-                    )
-                    cv2.putText(
-                        frame, f"{m_score:.0f}%", (hist_x2 - 48, y_pos),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.46, dot_color, 1, cv2.LINE_AA
-                    )
+                cv2.putText(
+                    frame, f"{m_score:.0f}%", (hist_x2 - 48, y_pos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.46, dot_color, 1, cv2.LINE_AA
+                )
 
         # 5. Bottom Floating Controls Pill
         if mode == "TEACH":
-            controls = "TEACHING MODE   |   R: Record Stance   |   M: Main Menu   |   Q: Quit"
+            controls = "R: Record Stance   |   I: Import Video   |   M: Menu   |   Q: Quit"
         else:
-            controls = "TRAINING MODE   |   1-9: Select Target   |   C: Clear Ghost   |   M: Main Menu   |   Q: Quit"
+            controls = "L: Folder   |   D: Demo   |   N/P: Next/Prev   |   S: Seq   |   T: Phone   |   M: Menu"
 
         (cw, _), _ = cv2.getTextSize(controls, cv2.FONT_HERSHEY_SIMPLEX, 0.47, 1)
         bx1 = max(18, (w - cw) // 2 - 20)
@@ -437,78 +436,281 @@ class MartialArtsHUD:
             cv2.FONT_HERSHEY_SIMPLEX, 0.47, PALETTE["cream"], 1, cv2.LINE_AA
         )
 
-    def draw_menu(self, frame, saved_count):
-        """Draws the startup mode-selection menu over a dimmed live webcam feed."""
-        h, w, _ = frame.shape
+    # ---------------- OVERLAY HELPERS (MENU, INPUT, DEMO, DRILLS) ----------------
 
-        # Dim background webcam feed
+    def draw_menu(self, frame, move_count):
+        """Renders the startup mode selection card using the groupmate's palette."""
+        h, w, _ = frame.shape
         overlay = frame.copy()
-        cv2.rectangle(overlay, (0, 0), (w, h), (18, 16, 15), -1)
+        cv2.rectangle(overlay, (0, 0), (w, h), (18, 17, 16), -1)
         cv2.addWeighted(overlay, 0.72, frame, 0.28, 0, frame)
 
-        # Title Header
-        title = "ARNIS & MARTIAL ARTS GUIDE"
-        (tw, _), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 1.05, 2)
-        cv2.putText(
-            frame, title, ((w - tw) // 2, h // 2 - 140),
-            cv2.FONT_HERSHEY_SIMPLEX, 1.05, PALETTE["cream"], 2, cv2.LINE_AA
-        )
+        card_w, card_h = 560, 320
+        x1, y1 = (w - card_w) // 2, (h - card_h) // 2
+        x2, y2 = x1 + card_w, y1 + card_h
 
-        subtitle = f"Select a mode to begin  ({saved_count} stances saved)"
-        (sw, _), _ = cv2.getTextSize(subtitle, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 1)
-        cv2.putText(
-            frame, subtitle, ((w - sw) // 2, h // 2 - 105),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.58, PALETTE["muted"], 1, cv2.LINE_AA
-        )
-
-        # Two Side-by-Side Mode Cards
-        card_w, card_h = 340, 180
-        gap = 40
-        start_x = (w - (card_w * 2 + gap)) // 2
-        top_y = h // 2 - 60
-
-        # Card 1: Teaching Mode
-        c1_x1, c1_x2 = start_x, start_x + card_w
         self._draw_card(
-            frame, (c1_x1, top_y), (c1_x2, top_y + card_h),
-            border_color=PALETTE["gold"], alpha=0.85, radius=16
+            frame, (x1, y1), (x2, y2),
+            border_color=PALETTE["sky"], alpha=0.88, radius=18
         )
         cv2.putText(
-            frame, "[1] TEACHING MODE", (c1_x1 + 24, top_y + 48),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.72, PALETTE["gold"], 2, cv2.LINE_AA
+            frame, "MARTIAL ARTS STANCE GUIDE", (x1 + 36, y1 + 52),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.80, PALETTE["sky"], 2, cv2.LINE_AA
         )
         cv2.putText(
-            frame, "Record & save new stances", (c1_x1 + 24, top_y + 92),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["cream"], 1, cv2.LINE_AA
-        )
-        cv2.putText(
-            frame, "into the program's memory.", (c1_x1 + 24, top_y + 118),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["muted"], 1, cv2.LINE_AA
+            frame, f"Saved Stances in Library: {move_count}", (x1 + 36, y1 + 84),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.54, PALETTE["muted"], 1, cv2.LINE_AA
         )
 
-        # Card 2: Training Mode
-        c2_x1, c2_x2 = c1_x2 + gap, c1_x2 + gap + card_w
         self._draw_card(
-            frame, (c2_x1, top_y), (c2_x2, top_y + card_h),
-            border_color=PALETTE["mint"], alpha=0.85, radius=16
+            frame, (x1 + 36, y1 + 112), (x2 - 36, y1 + 178),
+            border_color=PALETTE["gold"], alpha=0.85, radius=12
         )
         cv2.putText(
-            frame, "[2] TRAINING MODE", (c2_x1 + 24, top_y + 48),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.72, PALETTE["mint"], 2, cv2.LINE_AA
+            frame, "[1]  TEACHING MODE", (x1 + 54, y1 + 140),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.64, PALETTE["gold"], 2, cv2.LINE_AA
         )
         cv2.putText(
-            frame, "Practice saved stances with", (c2_x1 + 24, top_y + 92),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["cream"], 1, cv2.LINE_AA
-        )
-        cv2.putText(
-            frame, "Ghost Replay & form tips.", (c2_x1 + 24, top_y + 118),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["muted"], 1, cv2.LINE_AA
+            frame, "Record live stances or import tutorial videos", (x1 + 54, y1 + 164),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.47, PALETTE["cream"], 1, cv2.LINE_AA
         )
 
-        # Bottom Quit Hint
-        hint = "Press [1] Teaching   |   [2] Training   |   [Q] Quit"
-        (hw, _), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, 0.52, 1)
-        cv2.putText(
-            frame, hint, ((w - hw) // 2, h - 36),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["muted"], 1, cv2.LINE_AA
+        self._draw_card(
+            frame, (x1 + 36, y1 + 194), (x2 - 36, y1 + 260),
+            border_color=PALETTE["mint"], alpha=0.85, radius=12
         )
+        cv2.putText(
+            frame, "[2]  TRAINING MODE", (x1 + 54, y1 + 222),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.64, PALETTE["mint"], 2, cv2.LINE_AA
+        )
+        cv2.putText(
+            frame, "Watch 2x video demos, practice Ghost & Phone Drills", (x1 + 54, y1 + 246),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.47, PALETTE["cream"], 1, cv2.LINE_AA
+        )
+
+        cv2.putText(
+            frame, "Press 1 or 2 to start   |   Press Q to quit", (x1 + 110, y2 - 18),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.49, PALETTE["muted"], 1, cv2.LINE_AA
+        )
+
+    def prompt_text_in_window(self, base_frame, title, default_text=""):
+        """Collects text input inside the OpenCV window without blocking Windows UI events."""
+        text = default_text
+        while True:
+            canvas = base_frame.copy()
+            h, w, _ = canvas.shape
+
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (0, 0), (w, h), (15, 14, 13), -1)
+            cv2.addWeighted(overlay, 0.72, canvas, 0.28, 0, canvas)
+
+            box_w, box_h = min(720, w - 80), 150
+            x1, y1 = (w - box_w) // 2, (h - box_h) // 2
+            x2, y2 = x1 + box_w, y1 + box_h
+            self._draw_card(
+                canvas, (x1, y1), (x2, y2),
+                border_color=PALETTE["sky"], alpha=0.92, radius=16
+            )
+
+            cv2.putText(
+                canvas, title, (x1 + 22, y1 + 38),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.60, PALETTE["sky"], 2, cv2.LINE_AA
+            )
+            cv2.putText(
+                canvas, f"> {text}_", (x1 + 22, y1 + 85),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.64, PALETTE["cream"], 2, cv2.LINE_AA
+            )
+            cv2.putText(
+                canvas, "Press ENTER to confirm   |   ESC to cancel", (x1 + 22, y1 + 126),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, PALETTE["muted"], 1, cv2.LINE_AA
+            )
+
+            cv2.imshow("Martial Arts Guide", canvas)
+            key = cv2.waitKey(30) & 0xFF
+
+            if key in (13, 10):
+                return text.strip()
+            elif key == 27:
+                return ""
+            elif key in (8, 127):
+                text = text[:-1]
+            elif 32 <= key <= 126:
+                text += chr(key)
+
+    def draw_demo_clip(self, frame, video_frame, label=""):
+        """Renders the imported tutorial video clip card before live accuracy tracking begins."""
+        if video_frame is None:
+            return
+
+        h, w, _ = frame.shape
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (w, h), (18, 16, 15), -1)
+        cv2.addWeighted(overlay, 0.68, frame, 0.32, 0, frame)
+
+        vh, vw, _ = video_frame.shape
+        target_h = min(430, h - 180)
+        scale = target_h / float(vh)
+        target_w = min(w - 120, int(vw * scale))
+        resized = cv2.resize(video_frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+        x1 = (w - target_w) // 2
+        y1 = (h - target_h) // 2 + 15
+        x2 = x1 + target_w
+        y2 = y1 + target_h
+
+        self._draw_card(
+            frame, (x1 - 8, y1 - 8), (x2 + 8, y2 + 8),
+            border_color=PALETTE["sky"], alpha=0.92, radius=16
+        )
+        frame[y1:y2, x1:x2] = resized
+
+        banner = f"WATCH DEMO: {label}   (ESC to skip | D anytime to replay)"
+        (tw, _), _ = cv2.getTextSize(banner, cv2.FONT_HERSHEY_SIMPLEX, 0.56, 2)
+        cx = w // 2
+        self._draw_card(
+            frame, (cx - tw // 2 - 22, 54), (cx + tw // 2 + 22, 96),
+            border_color=PALETTE["sky"], alpha=0.90, radius=16
+        )
+        cv2.putText(
+            frame, banner, (cx - tw // 2, 82),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.56, PALETTE["sky"], 2, cv2.LINE_AA
+        )
+
+    def draw_drill_banner(self, frame, title, items, current_idx, hold_progress=0.0):
+        """Renders a top-center sequence card for Guided Sequence or Phone-Number Recall."""
+        h, w, _ = frame.shape
+        card_w = min(560, max(440, w - 580))
+        x1 = (w - card_w) // 2
+        x2 = x1 + card_w
+        y1, y2 = 72, 152
+
+        self._draw_card(
+            frame, (x1, y1), (x2, y2),
+            border_color=PALETTE["sky"], alpha=0.84, radius=14
+        )
+        cv2.putText(
+            frame, title, (x1 + 16, y1 + 24),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.47, PALETTE["sky"], 2, cv2.LINE_AA
+        )
+
+        cursor_x = x1 + 16
+        step_y = y1 + 52
+        for idx, item in enumerate(items):
+            if idx < current_idx:
+                color = PALETTE["mint"]
+                prefix = "[OK] "
+            elif idx == current_idx:
+                color = PALETTE["peach"]
+                prefix = "> "
+            else:
+                color = PALETTE["muted"]
+                prefix = ""
+
+            token = f"{prefix}{item}"
+            (tw, _), _ = cv2.getTextSize(token, cv2.FONT_HERSHEY_SIMPLEX, 0.47, 1)
+            if cursor_x + tw > x2 - 16:
+                break
+            cv2.putText(
+                frame, token, (cursor_x, step_y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.47, color, 2 if idx == current_idx else 1, cv2.LINE_AA
+            )
+            cursor_x += tw + 16
+
+        bar_x1, bar_y1 = x1 + 16, y2 - 14
+        bar_x2, bar_y2 = x2 - 16, y2 - 6
+        self._fill_rounded_rect(frame, (bar_x1, bar_y1), (bar_x2, bar_y2), (65, 62, 60), radius=4)
+        fill_w = int((bar_x2 - bar_x1) * max(0.0, min(1.0, hold_progress)))
+        if fill_w > 4:
+            self._fill_rounded_rect(frame, (bar_x1, bar_y1), (bar_x1 + fill_w, bar_y2), PALETTE["mint"], radius=4)
+
+    def select_compilation_in_window(self, base_frame, compilations_dict, active_comp=None):
+        """
+        Lets the user pick which folder/compilation of stances to practice.
+        Returns the chosen compilation folder name, 'ALL', or None if cancelled.
+        """
+        comp_names = list(compilations_dict.keys())
+        if not comp_names:
+            return None
+
+        selected_idx = 0
+        if active_comp in comp_names:
+            selected_idx = comp_names.index(active_comp)
+
+        while True:
+            canvas = base_frame.copy()
+            h, w, _ = canvas.shape
+
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (0, 0), (w, h), (15, 14, 13), -1)
+            cv2.addWeighted(overlay, 0.74, canvas, 0.26, 0, canvas)
+
+            row_h = 46
+            box_w = 580
+            box_h = min(h - 80, 175 + (len(comp_names) + 1) * row_h)
+            x1, y1 = (w - box_w) // 2, (h - box_h) // 2
+            x2, y2 = x1 + box_w, y1 + box_h
+
+            self._draw_card(
+                canvas, (x1, y1), (x2, y2),
+                border_color=PALETTE["sky"], alpha=0.92, radius=18
+            )
+            cv2.putText(
+                canvas, "SELECT STANCE COMPILATION", (x1 + 28, y1 + 44),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.72, PALETTE["sky"], 2, cv2.LINE_AA
+            )
+            cv2.putText(
+                canvas, "Choose a folder from moves_db/ to practice:", (x1 + 28, y1 + 72),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.48, PALETTE["muted"], 1, cv2.LINE_AA
+            )
+
+            options = [(name, len(compilations_dict[name])) for name in comp_names]
+            total_count = sum(count for _, count in options)
+            options.append(("ALL", total_count))
+
+            y = y1 + 96
+            for idx, (name, count) in enumerate(options):
+                if y + row_h > y2 - 42:
+                    break
+                is_sel = idx == selected_idx
+                border = PALETTE["mint"] if is_sel else PALETTE["card_border"]
+                label_color = PALETTE["mint"] if is_sel else PALETTE["cream"]
+                display = "All Compilations Combined" if name == "ALL" else name.replace("_", " ")
+                num_tag = "0" if name == "ALL" else str(idx + 1)
+
+                self._draw_card(
+                    canvas, (x1 + 26, y), (x2 - 26, y + row_h - 6),
+                    border_color=border, alpha=0.88 if is_sel else 0.65, radius=10
+                )
+                cv2.putText(
+                    canvas, f"[{num_tag}]  {display}", (x1 + 42, y + 26),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.54, label_color, 2 if is_sel else 1, cv2.LINE_AA
+                )
+                count_txt = f"{count} stances"
+                cv2.putText(
+                    canvas, count_txt, (x2 - 135, y + 26),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.47, PALETTE["gold"], 1, cv2.LINE_AA
+                )
+                y += row_h
+
+            cv2.putText(
+                canvas, "W/S or 1-9: Select   |   ENTER: Start   |   ESC: Back",
+                (x1 + 28, y2 - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, PALETTE["muted"], 1, cv2.LINE_AA
+            )
+
+            cv2.imshow("Martial Arts Guide", canvas)
+            key = cv2.waitKey(30) & 0xFF
+
+            if key in (13, 10):  # Enter
+                return options[selected_idx][0]
+            elif key == 27:      # Esc
+                return None
+            elif key in (ord("w"), ord("W"), 82):
+                selected_idx = (selected_idx - 1) % len(options)
+            elif key in (ord("s"), ord("S"), 84):
+                selected_idx = (selected_idx + 1) % len(options)
+            elif key == ord("0"):
+                return "ALL"
+            elif ord("1") <= key <= ord("9"):
+                pick = key - ord("1")
+                if pick < len(comp_names):
+                    return comp_names[pick]
