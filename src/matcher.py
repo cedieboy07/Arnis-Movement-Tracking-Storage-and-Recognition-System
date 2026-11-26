@@ -27,9 +27,10 @@ class PoseMatcher:
         names = []
         vectors = []
         for name, data in saved_moves.items():
-            vector = torch.as_tensor(
-                data["vector"], dtype=torch.float32, device=self.device
-            ).reshape(-1)
+            raw_vec = torch.as_tensor(data["vector"], dtype=torch.float32, device=self.device)
+            if raw_vec.ndim == 2 and raw_vec.shape[1] == 115:
+                continue  # Skip dynamic sequences during static stance matching
+            vector = raw_vec.reshape(-1)
             if vector.numel() != 115:
                 raise ValueError(
                     f"Saved move {name!r} must contain 115 feature values; "
@@ -37,6 +38,9 @@ class PoseMatcher:
                 )
             names.append(name)
             vectors.append(vector)
+
+        if not vectors:
+            return None, 0.0
 
         target_tensor = torch.stack(vectors)
         with torch.no_grad():

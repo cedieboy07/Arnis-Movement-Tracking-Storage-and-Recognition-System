@@ -11,14 +11,9 @@ def main():
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam.")
 
-    # Request 720p HD resolution for a wider field of view
+    # Request 720p so the left telemetry card and right history card have breathing room
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-
-    # Allow resizing or maximizing the display window
-    window_name = "Martial Arts Guide"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 1280, 720)
 
     extractor = PoseExtractor("models/pose_landmarker_full.task")
     matcher = PoseMatcher(threshold=0.88)
@@ -43,14 +38,14 @@ def main():
 
         raw_lm, norm_vec = extractor.process_frame(frame, timestamp_ms)
 
-        # Resolve active Ghost target landmarks if selected
+        # Fetch active Ghost Skeleton if selected
         ghost_raw = (
             library.moves[active_ghost]["raw"]
             if (active_ghost and active_ghost in library.moves)
             else None
         )
 
-        # Draw scale-aligned Ghost overlay + target baston
+        # Draw hip-aligned Ghost overlay + virtual ghost weapons
         if ghost_raw is not None:
             hud.draw_ghost(
                 frame,
@@ -60,13 +55,8 @@ def main():
                 extractor=extractor,
             )
 
-        # Draw live user skeleton + virtual Arnis baston
-        hud.draw_skeleton(
-            frame,
-            raw_lm,
-            thickness=3,
-            extractor=extractor,
-        )
+        # Draw live user skeleton + virtual rattan bastons
+        hud.draw_skeleton(frame, raw_lm, extractor=extractor)
 
         # Handle 3-second recording countdown
         status_msg = ""
@@ -77,14 +67,15 @@ def main():
             else:
                 record_deadline = None
                 if norm_vec is not None:
-                    cv2.imshow(window_name, frame)
+                    cv2.imshow("Martial Arts Guide", frame)
                     cv2.waitKey(1)
-                    move_name = input(
-                        "\nEnter name for this stance (e.g. Arnis Open Guard): "
-                    )
-                    if move_name.strip():
-                        library.save_move(move_name.strip(), norm_vec, raw_lm)
-                        active_ghost = move_name.strip()
+                    move_name = input("\nEnter name for this stance (e.g. Arnis Open Guard): ").strip()
+                    if move_name:
+                        try:
+                            library.save_move(move_name, norm_vec, raw_lm)
+                            active_ghost = move_name
+                        except ValueError as exc:
+                            print(f"[WARN] Could not save stance: {exc}")
                 else:
                     print("[WARN] No body detected during capture. Try again.")
 
@@ -93,7 +84,7 @@ def main():
         if detected_name:
             library.log_detected_move(detected_name, score)
 
-        # Render full HUD overlay (status pill, joint telemetry, form tips, history)
+        # Render full HUD (top pill, joint telemetry, form tips, history, controls)
         hud.draw_ui(
             frame,
             detected_name,
@@ -105,7 +96,7 @@ def main():
             extractor=extractor,
             ghost_label=active_ghost,
         )
-        cv2.imshow(window_name, frame)
+        cv2.imshow("Martial Arts Guide", frame)
 
         # Keyboard controls
         key = cv2.waitKey(1) & 0xFF
