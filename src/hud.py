@@ -297,13 +297,21 @@ class MartialArtsHUD:
         ghost_raw=None,
         extractor=None,
         ghost_label=None,
+        mode="TRAIN",
     ):
         h, w, _ = frame.shape
 
         # 1. Floating Top Status Pill + Smooth Match Meter
         pill_x1, pill_y1 = 18, 14
         pill_x2, pill_y2 = w - 18, 60
-        if detected_name:
+        if mode == "TEACH":
+            if live_raw is None:
+                status_text = "Teaching Mode - Step into camera view"
+                accent = PALETTE["peach"]
+            else:
+                status_text = "Teaching Mode - Press R to record stance"
+                accent = PALETTE["gold"]
+        elif detected_name:
             status_text = f"Matched: {detected_name}"
             accent = PALETTE["mint"]
         elif live_raw is None:
@@ -317,7 +325,7 @@ class MartialArtsHUD:
             frame,
             (pill_x1, pill_y1),
             (pill_x2, pill_y2),
-            border_color=accent if detected_name else PALETTE["card_border"],
+            border_color=accent if (detected_name or mode == "TEACH") else PALETTE["card_border"],
             alpha=0.78,
             radius=16,
         )
@@ -329,18 +337,19 @@ class MartialArtsHUD:
             cv2.FONT_HERSHEY_SIMPLEX, 0.65, PALETTE["cream"], 2, cv2.LINE_AA
         )
 
-        # Right side of top pill: Score percentage + rounded progress bar
-        pct_text = f"{score:.0f}%"
-        cv2.putText(
-            frame, pct_text, (w - 235, 42),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.56, accent, 2, cv2.LINE_AA
-        )
-        bar_x1, bar_y1 = w - 180, 31
-        bar_x2, bar_y2 = w - 34, 43
-        self._fill_rounded_rect(frame, (bar_x1, bar_y1), (bar_x2, bar_y2), (65, 62, 60), radius=6)
-        fill_w = int((bar_x2 - bar_x1) * max(0.0, min(100.0, float(score))) / 100.0)
-        if fill_w > 6:
-            self._fill_rounded_rect(frame, (bar_x1, bar_y1), (bar_x1 + fill_w, bar_y2), accent, radius=6)
+        # Right side of top pill: Show Match Meter only in Training Mode
+        if mode == "TRAIN":
+            pct_text = f"{score:.0f}%"
+            cv2.putText(
+                frame, pct_text, (w - 235, 42),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.56, accent, 2, cv2.LINE_AA
+            )
+            bar_x1, bar_y1 = w - 180, 31
+            bar_x2, bar_y2 = w - 34, 43
+            self._fill_rounded_rect(frame, (bar_x1, bar_y1), (bar_x2, bar_y2), (65, 62, 60), radius=6)
+            fill_w = int((bar_x2 - bar_x1) * max(0.0, min(100.0, float(score))) / 100.0)
+            if fill_w > 6:
+                self._fill_rounded_rect(frame, (bar_x1, bar_y1), (bar_x1 + fill_w, bar_y2), accent, radius=6)
 
         # 2. Left Card: Joint Angles & Quick Form Tips
         self._draw_telemetry_panel(
@@ -365,48 +374,53 @@ class MartialArtsHUD:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.95, PALETTE["peach"], 2, cv2.LINE_AA
             )
 
-        # 4. Right Card: Recent Moves History
-        hist_x1, hist_y1 = w - 275, 72
-        hist_x2, hist_y2 = w - 18, 305
-        self._draw_card(
-            frame,
-            (hist_x1, hist_y1),
-            (hist_x2, hist_y2),
-            border_color=PALETTE["card_border"],
-            alpha=0.72,
-            radius=14,
-        )
-        cv2.putText(
-            frame, "Recent Moves", (hist_x1 + 16, hist_y1 + 26),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.54, PALETTE["sky"], 2, cv2.LINE_AA
-        )
-
-        recent_history = list(reversed(history))[:7]
-        if not recent_history:
-            cv2.putText(
-                frame, "No stances matched yet", (hist_x1 + 16, hist_y1 + 56),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.46, PALETTE["muted"], 1, cv2.LINE_AA
+        # 4. Right Card: Recent Moves History (Training Mode only)
+        if mode == "TRAIN":
+            hist_x1, hist_y1 = w - 275, 72
+            hist_x2, hist_y2 = w - 18, 305
+            self._draw_card(
+                frame,
+                (hist_x1, hist_y1),
+                (hist_x2, hist_y2),
+                border_color=PALETTE["card_border"],
+                alpha=0.72,
+                radius=14,
             )
-        else:
-            for idx, (m_name, m_score) in enumerate(recent_history):
-                y_pos = hist_y1 + 56 + idx * 28
-                is_latest = idx == 0
-                dot_color = PALETTE["mint"] if is_latest else PALETTE["muted"]
-                text_color = PALETTE["cream"] if is_latest else PALETTE["muted"]
-                display_name = m_name if len(m_name) <= 16 else m_name[:14] + ".."
+            cv2.putText(
+                frame, "Recent Moves", (hist_x1 + 16, hist_y1 + 26),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.54, PALETTE["sky"], 2, cv2.LINE_AA
+            )
 
-                cv2.circle(frame, (hist_x1 + 20, y_pos - 4), 3, dot_color, -1, cv2.LINE_AA)
+            recent_history = list(reversed(history))[:7]
+            if not recent_history:
                 cv2.putText(
-                    frame, display_name, (hist_x1 + 30, y_pos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.47, text_color, 1, cv2.LINE_AA
+                    frame, "No stances matched yet", (hist_x1 + 16, hist_y1 + 56),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.46, PALETTE["muted"], 1, cv2.LINE_AA
                 )
-                cv2.putText(
-                    frame, f"{m_score:.0f}%", (hist_x2 - 48, y_pos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.46, dot_color, 1, cv2.LINE_AA
-                )
+            else:
+                for idx, (m_name, m_score) in enumerate(recent_history):
+                    y_pos = hist_y1 + 56 + idx * 28
+                    is_latest = idx == 0
+                    dot_color = PALETTE["mint"] if is_latest else PALETTE["muted"]
+                    text_color = PALETTE["cream"] if is_latest else PALETTE["muted"]
+                    display_name = m_name if len(m_name) <= 16 else m_name[:14] + ".."
+
+                    cv2.circle(frame, (hist_x1 + 20, y_pos - 4), 3, dot_color, -1, cv2.LINE_AA)
+                    cv2.putText(
+                        frame, display_name, (hist_x1 + 30, y_pos),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.47, text_color, 1, cv2.LINE_AA
+                    )
+                    cv2.putText(
+                        frame, f"{m_score:.0f}%", (hist_x2 - 48, y_pos),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.46, dot_color, 1, cv2.LINE_AA
+                    )
 
         # 5. Bottom Floating Controls Pill
-        controls = "R: Record Stance   |   1-9: Ghost Replay   |   C: Clear Ghost   |   Q: Quit"
+        if mode == "TEACH":
+            controls = "TEACHING MODE   |   R: Record Stance   |   M: Main Menu   |   Q: Quit"
+        else:
+            controls = "TRAINING MODE   |   1-9: Select Target   |   C: Clear Ghost   |   M: Main Menu   |   Q: Quit"
+
         (cw, _), _ = cv2.getTextSize(controls, cv2.FONT_HERSHEY_SIMPLEX, 0.47, 1)
         bx1 = max(18, (w - cw) // 2 - 20)
         bx2 = min(w - 18, (w + cw) // 2 + 20)
@@ -421,4 +435,80 @@ class MartialArtsHUD:
         cv2.putText(
             frame, controls, (bx1 + 20, h - 22),
             cv2.FONT_HERSHEY_SIMPLEX, 0.47, PALETTE["cream"], 1, cv2.LINE_AA
+        )
+
+    def draw_menu(self, frame, saved_count):
+        """Draws the startup mode-selection menu over a dimmed live webcam feed."""
+        h, w, _ = frame.shape
+
+        # Dim background webcam feed
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (w, h), (18, 16, 15), -1)
+        cv2.addWeighted(overlay, 0.72, frame, 0.28, 0, frame)
+
+        # Title Header
+        title = "ARNIS & MARTIAL ARTS GUIDE"
+        (tw, _), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 1.05, 2)
+        cv2.putText(
+            frame, title, ((w - tw) // 2, h // 2 - 140),
+            cv2.FONT_HERSHEY_SIMPLEX, 1.05, PALETTE["cream"], 2, cv2.LINE_AA
+        )
+
+        subtitle = f"Select a mode to begin  ({saved_count} stances saved)"
+        (sw, _), _ = cv2.getTextSize(subtitle, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 1)
+        cv2.putText(
+            frame, subtitle, ((w - sw) // 2, h // 2 - 105),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.58, PALETTE["muted"], 1, cv2.LINE_AA
+        )
+
+        # Two Side-by-Side Mode Cards
+        card_w, card_h = 340, 180
+        gap = 40
+        start_x = (w - (card_w * 2 + gap)) // 2
+        top_y = h // 2 - 60
+
+        # Card 1: Teaching Mode
+        c1_x1, c1_x2 = start_x, start_x + card_w
+        self._draw_card(
+            frame, (c1_x1, top_y), (c1_x2, top_y + card_h),
+            border_color=PALETTE["gold"], alpha=0.85, radius=16
+        )
+        cv2.putText(
+            frame, "[1] TEACHING MODE", (c1_x1 + 24, top_y + 48),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.72, PALETTE["gold"], 2, cv2.LINE_AA
+        )
+        cv2.putText(
+            frame, "Record & save new stances", (c1_x1 + 24, top_y + 92),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["cream"], 1, cv2.LINE_AA
+        )
+        cv2.putText(
+            frame, "into the program's memory.", (c1_x1 + 24, top_y + 118),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["muted"], 1, cv2.LINE_AA
+        )
+
+        # Card 2: Training Mode
+        c2_x1, c2_x2 = c1_x2 + gap, c1_x2 + gap + card_w
+        self._draw_card(
+            frame, (c2_x1, top_y), (c2_x2, top_y + card_h),
+            border_color=PALETTE["mint"], alpha=0.85, radius=16
+        )
+        cv2.putText(
+            frame, "[2] TRAINING MODE", (c2_x1 + 24, top_y + 48),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.72, PALETTE["mint"], 2, cv2.LINE_AA
+        )
+        cv2.putText(
+            frame, "Practice saved stances with", (c2_x1 + 24, top_y + 92),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["cream"], 1, cv2.LINE_AA
+        )
+        cv2.putText(
+            frame, "Ghost Replay & form tips.", (c2_x1 + 24, top_y + 118),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["muted"], 1, cv2.LINE_AA
+        )
+
+        # Bottom Quit Hint
+        hint = "Press [1] Teaching   |   [2] Training   |   [Q] Quit"
+        (hw, _), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, 0.52, 1)
+        cv2.putText(
+            frame, hint, ((w - hw) // 2, h - 36),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.52, PALETTE["muted"], 1, cv2.LINE_AA
         )
